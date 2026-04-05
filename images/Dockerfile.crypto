@@ -1,0 +1,16 @@
+FROM cyberlab-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Outils crypto (onewayhash, pubkey, ssl, pass-crack)
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+    openssl \
+    john \
+    hashcat \
+    python3 \
+    apache2-utils \
+    coreutils \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

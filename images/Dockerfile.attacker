@@ -1,0 +1,12 @@
+FROM cyberlab-network:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Outils offensifs pour les labs d'attaque (arp-spoof, metasploit, nmap-discovery)
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+    dsniff \
+    ettercap-text-only \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

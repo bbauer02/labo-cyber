@@ -1,0 +1,15 @@
+FROM cyberlab-network:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Stack LAMP pour les labs web (sql-inject, xsite)
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+    apache2 \
+    mysql-server \
+    php \
+    php-mysql \
+    libapache2-mod-php \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

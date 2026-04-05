@@ -1,0 +1,23 @@
+FROM cyberlab-base:latest
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Outils réseau pour les labs réseau (iptables, arp-spoof, dns, routing, vpn, ssh-tunnel)
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+    tcpdump \
+    tshark \
+    nmap \
+    iptables \
+    openssh-server \
+    openssh-client \
+    dnsutils \
+    traceroute \
+    telnet \
+    netcat-openbsd \
+    arping \
+    apache2 \
+    && mkdir -p /var/run/sshd \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]

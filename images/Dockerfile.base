@@ -1,0 +1,21 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Outils de base présents dans tous les labs
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+    bash \
+    net-tools \
+    iputils-ping \
+    iproute2 \
+    curl \
+    wget \
+    vim \
+    nano \
+    sudo \
+    ca-certificates \
+    acl \
+    && rm -rf /var/lib/apt/lists/*
+
+CMD ["/bin/bash"]
