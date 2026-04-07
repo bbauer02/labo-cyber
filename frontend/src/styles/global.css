@@ -485,7 +485,7 @@ a:hover {
 /* Workspace */
 .workspace {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: 480px 1fr;
   height: calc(100vh - var(--navbar-height));
   margin: calc(-1 * 32px);
   margin-top: 0;
@@ -495,7 +495,7 @@ a:hover {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
   overflow-y: auto;
-  padding: 24px;
+  padding: 16px;
 }
 
 .workspace-instructions h2 {
@@ -530,6 +530,49 @@ a:hover {
   border-radius: 4px;
   font-size: 12px;
   color: var(--accent);
+}
+
+/* Contenu HTML riche dans les instructions de lab */
+.lab-html-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 11px;
+}
+.lab-html-content th,
+.lab-html-content td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.lab-html-content th {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.lab-html-content ul,
+.lab-html-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+.lab-html-content li {
+  margin-bottom: 4px;
+}
+.lab-html-content pre {
+  background: #1a2332;
+  color: #e0e0e0;
+  padding: 14px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  overflow-x: auto;
+  line-height: 1.5;
+  margin: 10px 0;
+  white-space: pre;
+}
+/* Masquer les <br> parasites dans les blocs structurés */
+.lab-html-content ul br,
+.lab-html-content ol br {
+  display: none;
 }
 
 .workspace-terminal {

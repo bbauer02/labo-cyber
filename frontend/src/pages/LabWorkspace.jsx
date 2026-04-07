@@ -3,6 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Terminal from '../components/Terminal';
 import NetworkTopology from '../components/NetworkTopology';
 
+// Convertit \n en <br/> sauf à l'intérieur des blocs <pre>...</pre>
+function nlToBr(html) {
+  return html.replace(/([\s\S]*?)(<pre[\s\S]*?<\/pre>|$)/g, (_, text, pre) =>
+    text.replace(/\n/g, '<br/>') + pre
+  );
+}
+
 // Contenu réel des cours traduit depuis les fichiers .tex de Labtainers
 const LAB_INSTRUCTIONS = {
   'bufoverflow': {
@@ -58,33 +65,124 @@ const LAB_INSTRUCTIONS = {
   },
 
   'arp-spoof': {
-    title: 'ARP Spoofing — Attaque Man-in-the-Middle',
-    overview: `Ce lab explore l'ARP spoofing comme moyen d'intercepter le trafic sur un réseau local. Les LAN modernes utilisent des switchs Ethernet qui empêchent le sniffing passif, mais l'empoisonnement ARP permet à un attaquant d'intercepter le trafic en se faisant passer pour un hôte intermédiaire.`,
-    environment: `<strong>Topologie réseau (4 conteneurs) :</strong>\n- <strong>user</strong> (ubuntu) : 10.10.3.10 — MAC aa:ab:ac:ad:00:02 sur LOCAL_NETWORK\n- <strong>gateway</strong> (ubuntu) : 10.10.3.254 (LOCAL) + 10.10.4.254 (REMOTE) — routeur\n- <strong>attacker</strong> (ubuntu) : 10.10.3.20 — MAC aa:ab:ac:ad:00:04 sur LOCAL_NETWORK — dsniff + tcpdump + tshark\n- <strong>webserver</strong> (ubuntu) : 10.10.4.10 sur REMOTE_NETWORK — serveur HTTP\n\n<strong>Réseaux :</strong>\n- LOCAL_NETWORK : 10.10.3.0/24\n- REMOTE_NETWORK : 10.10.4.0/24\n\n<strong>Outils de capture réseau :</strong>\n- <code>tcpdump</code> : outil bas niveau — <strong>capturer</strong> le trafic et faire du debug rapide. Affiche les en-têtes bruts et le contenu ASCII.\n- <code>tshark</code> : Wireshark en ligne de commande — <strong>analyser</strong> en détail. Dissèque les protocoles, permet des filtres avancés et la reconstitution de flux.\n\nEn résumé : <code>tcpdump</code> pour capturer, <code>tshark</code> pour analyser.`,
+    title: 'ARP Spoofing — Attaque Man-in-the-Middle sur réseau local',
+    overview: `Sur un réseau local moderne équipé de <strong>switchs</strong>, le sniffing passif ne fonctionne pas : le switch n'envoie les trames qu'au port MAC de destination. Contrairement à un hub, un attaquant connecté au même switch ne voit que son propre trafic et le broadcast.\n\nMais le protocole <strong>ARP</strong> (Address Resolution Protocol) est le maillon faible : il ne vérifie jamais l'identité de celui qui répond. N'importe qui peut envoyer une réponse ARP non sollicitée, et la victime l'acceptera sans vérification. L'<strong>ARP spoofing</strong> exploite cette confiance aveugle pour empoisonner le cache ARP des victimes et détourner tout le trafic vers la machine de l'attaquant.\n\nCe lab couvre le cycle complet : <strong>observation du réseau normal</strong> → <strong>empoisonnement ARP</strong> → <strong>capture MITM</strong> → <strong>analyse avec tcpdump et tshark</strong>.`,
+    environment: `<table><tr><th>Machine</th><th>IP / MAC</th><th>Rôle</th></tr><tr><td><strong>user</strong></td><td><code>10.10.3.10</code><br><code>aa:ab:ac:ad:00:02</code></td><td>Victime (LOCAL)</td></tr><tr><td><strong>gateway</strong></td><td><code>10.10.3.254</code> / <code>192.168.1.254</code><br><code>aa:ab:ac:ad:00:03</code></td><td>Routeur</td></tr><tr><td><strong>attacker</strong></td><td><code>10.10.3.20</code><br><code>aa:ab:ac:ad:00:04</code></td><td>Attaquant (LOCAL)</td></tr><tr><td><strong>webserver</strong></td><td><code>192.168.1.10</code></td><td>Serveur HTTP (REMOTE)</td></tr></table><strong>Réseaux :</strong><ul style="margin:4px 0 8px 0;"><li><strong>LOCAL_NETWORK</strong> : <code>10.10.3.0/24</code> (même switch)</li><li><strong>REMOTE_NETWORK</strong> : <code>192.168.1.0/24</code> (via gateway)</li></ul><strong>Outils :</strong><ul style="margin:4px 0 0 0;"><li><code>tcpdump</code> = <strong>jumelles</strong> : capturer le trafic brut en temps réel</li><li><code>tshark</code> = <strong>microscope</strong> : disséquer chaque protocole, reconstituer des sessions</li></ul>`,
     steps: [
       {
-        title: 'Tâche 1 : Sniffer le LAN depuis l\'attaquant (avant spoofing)',
-        content: `<strong>Avant le spoofing</strong>, observez le trafic réseau.\n\n1. Sur l'<strong>attaquant</strong> (onglet "attacker"), lancez tcpdump en temps réel :\n<code>sudo tcpdump -i eth0 -n -v</code>\n\n<strong>Explication :</strong> <code>-i eth0</code> = interface réseau, <code>-n</code> = pas de résolution DNS, <code>-v</code> = mode verbeux.\n\n2. Basculez sur l'onglet <strong>user</strong> et récupérez la page web :\n<code>wget -q http://10.10.4.10</code>\n\n3. Revenez sur l'onglet <strong>attacker</strong> et observez la sortie de tcpdump.\n\n<strong>Question :</strong> Voyez-vous la requête HTTP ou la réponse ? Non — le switch envoie les paquets uniquement vers le port du destinataire (gateway), pas vers l'attaquant. C'est pourquoi l'ARP spoofing est nécessaire.\n\nArrêtez tcpdump avec <code>Ctrl+C</code>.`,
+        title: 'Étape 1 : Comprendre — Le protocole ARP',
+        content: `<div style="background:rgba(255, 152, 0, 0.1); border-left:4px solid #ff9800; padding:12px 16px; margin:12px 0; border-radius:4px;">
+<strong>À retenir :</strong> Sur un réseau Ethernet, les machines communiquent par <strong>adresses MAC</strong> (couche 2), pas par adresses IP (couche 3). Le switch utilise les MAC pour aiguiller les trames. Le protocole ARP fait le lien entre les deux : il traduit une IP en MAC.
+</div>
+
+Quand <strong>user</strong> veut joindre la gateway (<code>10.10.3.254</code>), voici ce qui se passe :<div style="background:#1a2332; border-radius:6px; padding:14px; margin:10px 0; font-family:var(--font-mono); font-size:12px; line-height:1.8;"><div style="color:#4caf50;">1. <span style="color:#81c784;">user</span> → broadcast : <em>"Qui a 10.10.3.254 ? Dites-le à 10.10.3.10"</em></div><div style="color:#f39c12;">2. <span style="color:#ffcc80;">gateway</span> → user : <em>"10.10.3.254, c'est moi, MAC aa:ab:ac:ad:00:03"</em></div><div style="color:#90caf9;">3. <span style="color:#81c784;">user</span> stocke dans son cache : <code>10.10.3.254 = aa:ab:ac:ad:00:03</code></div></div><div style="background:rgba(244,67,54,0.1); border-left:4px solid #f44336; padding:10px 14px; margin:8px 0; border-radius:4px; font-size:12px; color:#ef9a9a;">⚠ ARP fait confiance aveuglément. Aucune vérification. N'importe qui peut envoyer une réponse ARP non sollicitée.</div>C'est cette <strong>confiance aveugle</strong> que l'attaquant va exploiter.`,
       },
       {
-        title: 'Tâche 2 : Observer le cache ARP avant l\'attaque',
-        content: `Sur le <strong>user</strong>, examinez le cache ARP actuel :\n<code>arp -a</code>\n\n<strong>Rappel :</strong> Le protocole ARP associe une adresse IP à une adresse MAC. Le cache ARP stocke ces associations localement.\n\nNotez l'adresse MAC associée à la gateway (10.10.3.254). Après le spoofing, cette MAC changera pour celle de l'attaquant.\n\nSur l'<strong>attaquant</strong>, vérifiez que le forwarding IP est activé :\n<code>cat /proc/sys/net/ipv4/ip_forward</code>\n(Doit être 1, sinon : <code>echo 1 | sudo tee /proc/sys/net/ipv4/ip_forward</code>)\n\n<strong>Pourquoi ?</strong> Sans forwarding, l'attaquant recevrait les paquets mais ne les retransmettrait pas — la victime perdrait sa connexion et se douterait de l'attaque.`,
+        title: 'Étape 2 : Observer — Le réseau avant l\'attaque',
+        content: `1. Sur <strong>user</strong>, commencez par pinguer la gateway pour peupler le cache ARP :\n<code>ping -c 2 10.10.3.254</code>\n\n2. Observez le cache ARP :\n<code>arp -a</code>\n\nNotez la MAC associée à <code>10.10.3.254</code> — elle doit être <code>aa:ab:ac:ad:00:03</code> (la vraie MAC de la gateway).
+
+3. Sur <strong>attacker</strong>, vérifiez d'abord que tcpdump fonctionne en générant du trafic propre :\n<code>sudo tcpdump -i eth0 -n -c 5 &</code>\n<code>ping -c 2 10.10.3.254</code>\n\nVous devez voir les paquets ICMP de votre ping — tcpdump fonctionne.
+
+4. Maintenant, relancez tcpdump en écoute continue :\n<code>sudo tcpdump -i eth0 -n -v</code>
+
+5. Sur <strong>user</strong> (autre onglet), générez du trafic HTTP :\n<code>wget -q http://192.168.1.10</code>
+
+6. Revenez sur <strong>attacker</strong> et observez la sortie de tcpdump.
+
+<div style="background:rgba(76, 175, 80, 0.1); border-left:4px solid #4caf50; padding:12px 16px; margin:12px 0; border-radius:4px;">
+<strong>Observation attendue :</strong> tcpdump ne montre PAS la requête HTTP du user. Vous ne voyez que votre propre trafic (ARP, ping). Le switch envoie les trames uniquement au port MAC de destination — le sniffing passif est impossible sur un réseau commuté.
+</div>
+
+Arrêtez tcpdump avec <code>Ctrl+C</code>.`,
       },
       {
-        title: 'Tâche 3 : Empoisonner le cache ARP',
-        content: `Sur l'<strong>attaquant</strong>, réalisez un empoisonnement ARP bidirectionnel avec <code>arpspoof</code> (outil du paquet dsniff).\n\nSpoofing vers le user (lui faire croire que vous êtes la gateway) :\n<code>sudo arpspoof -i eth0 -t 10.10.3.10 10.10.3.254 &</code>\n\nSpoofing vers la gateway (lui faire croire que vous êtes le user) :\n<code>sudo arpspoof -i eth0 -t 10.10.3.254 10.10.3.10 &</code>\n\n<strong>Explication :</strong> <code>-t 10.10.3.10 10.10.3.254</code> signifie "dire à 10.10.3.10 que l'adresse MAC de 10.10.3.254, c'est moi".\n\nVérifiez le cache ARP empoisonné sur le <strong>user</strong> :\n<code>arp -a</code>\n\n<strong>Observation attendue :</strong> L'adresse MAC de la gateway (10.10.3.254) est maintenant celle de l'attaquant (aa:ab:ac:ad:00:04). Le trafic du user passe désormais par l'attaquant.`,
+        title: 'Étape 3 : Comprendre — Le principe de l\'empoisonnement ARP',
+        content: `Voici ce qui change quand l'attaquant empoisonne le cache ARP :
+
+<div style="background:#1a2332; border-radius:6px; padding:14px; margin:10px 0;">
+<div style="color:#4caf50; font-weight:bold; font-size:12px; margin-bottom:8px; font-family:var(--font-mono);">AVANT — Réseau normal</div>
+<div style="display:flex; align-items:center; gap:8px; justify-content:center; margin-bottom:6px;">
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px;"><span style="color:#4caf50;">user</span><br><span style="color:#888;">10.10.3.10</span><br><span style="color:#666;">MAC:02</span></div>
+<div style="color:#4caf50; font-family:var(--font-mono); font-size:18px;">──→</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px;"><span style="color:#f39c12;">gateway</span><br><span style="color:#888;">.3.254 / .1.254</span><br><span style="color:#666;">MAC:03</span></div>
+<div style="color:#4caf50; font-family:var(--font-mono); font-size:18px;">──→</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px;"><span style="color:#e67e22;">webserver</span><br><span style="color:#888;">192.168.1.10</span></div>
+</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px; color:#4caf50; margin:4px 0;">Cache ARP de user : 10.10.3.254 → MAC:03 ✓</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px; color:#666; padding:2px 0;">L'attaquant ne voit rien (le switch isole les ports)</div>
+</div>
+
+<div style="background:#1a2332; border-radius:6px; padding:14px; margin:10px 0; border:1px solid rgba(244,67,54,0.3);">
+<div style="color:#f44336; font-weight:bold; font-size:12px; margin-bottom:8px; font-family:var(--font-mono);">APRÈS — Cache empoisonné</div>
+<div style="display:flex; align-items:center; gap:6px; justify-content:center; margin-bottom:6px;">
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px;"><span style="color:#4caf50;">user</span><br><span style="color:#888;">.3.10</span></div>
+<div style="color:#f44336; font-family:var(--font-mono); font-size:18px;">──→</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px; background:rgba(244,67,54,0.15); padding:4px 8px; border-radius:4px; border:1px solid rgba(244,67,54,0.4);"><span style="color:#f44336;">attacker</span><br><span style="color:#888;">.3.20 MAC:04</span><br><span style="color:#f44336; font-size:10px;">capture tout</span></div>
+<div style="color:#ff9800; font-family:var(--font-mono); font-size:18px;">──→</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px;"><span style="color:#f39c12;">gateway</span><br><span style="color:#888;">.3.254</span></div>
+<div style="color:#4caf50; font-family:var(--font-mono); font-size:18px;">──→</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px;"><span style="color:#e67e22;">webserver</span><br><span style="color:#888;">.1.10</span></div>
+</div>
+<div style="text-align:center; font-family:var(--font-mono); font-size:11px; color:#f44336; margin:4px 0;">Cache ARP de user : 10.10.3.254 → MAC:04 ✗ (empoisonné !)</div>
+</div>
+
+<div style="background:rgba(255, 152, 0, 0.1); border-left:4px solid #ff9800; padding:12px 16px; margin:12px 0; border-radius:4px;">
+<strong>À retenir :</strong> Le forwarding IP (<code>ip_forward=1</code>) est indispensable sur la machine de l'attaquant. Sans lui, les paquets détournés ne seraient pas retransmis — le user perdrait sa connexion et l'attaque serait immédiatement détectée.
+</div>`,
       },
       {
-        title: 'Tâche 4 : Capturer le trafic avec tcpdump',
-        content: `<strong>tcpdump</strong> sert à <strong>capturer</strong> le trafic brut et l'enregistrer dans un fichier.\n\n1. Sur l'<strong>attaquant</strong>, lancez la capture sur le port 80 (HTTP) :\n<code>sudo tcpdump -i eth0 -n -w /tmp/arp-spoof.pcap port 80 &</code>\n\n<strong>Options utilisées :</strong>\n- <code>-w /tmp/arp-spoof.pcap</code> : écrire dans un fichier (format PCAP)\n- <code>port 80</code> : filtre BPF — ne capturer que le trafic HTTP\n\n2. Basculez sur le <strong>user</strong> et générez du trafic HTTP :\n<code>wget -q http://10.10.4.10</code>\n<code>wget -q http://10.10.4.10/index.html</code>\n\n3. Revenez sur l'<strong>attaquant</strong> et arrêtez la capture :\n<code>pkill tcpdump</code>\n\n4. Lecture rapide avec tcpdump — vue brute ASCII :\n<code>tcpdump -r /tmp/arp-spoof.pcap -A</code>\n\nVous voyez les en-têtes HTTP et le contenu HTML en clair.\n\n5. Lecture avec comptage de paquets :\n<code>tcpdump -r /tmp/arp-spoof.pcap -n | wc -l</code>`,
+        title: 'Étape 4 : Attaquer — Empoisonner le cache ARP',
+        content: `1. Sur <strong>attacker</strong>, vérifiez que le forwarding IP est actif :\n<code>cat /proc/sys/net/ipv4/ip_forward</code>\n→ doit afficher <code>1</code>
+
+2. Lancez l'empoisonnement ARP bidirectionnel avec <code>arpspoof</code>. Le <code>&</code> en fin de commande la lance en arrière-plan, ce qui vous permet de taper la suivante dans le même terminal.
+
+Dire au user que la MAC de .254, c'est moi :\n<code>sudo arpspoof -i eth0 -t 10.10.3.10 10.10.3.254 &</code>\nVous verrez des lignes défiler : ce sont les fausses réponses ARP envoyées en boucle.
+
+Dire à la gateway que la MAC de .10, c'est moi :\n<code>sudo arpspoof -i eth0 -t 10.10.3.254 10.10.3.10 &</code>
+
+3. Attendez quelques secondes, puis vérifiez sur <strong>user</strong> :\n<code>arp -a</code>
+
+<div style="background:rgba(76, 175, 80, 0.1); border-left:4px solid #4caf50; padding:12px 16px; margin:12px 0; border-radius:4px;">
+<strong>Observation attendue :</strong> La MAC de <code>10.10.3.254</code> dans le cache de user est maintenant <code>aa:ab:ac:ad:00:04</code> (celle de l'attaquant, pas celle de la gateway). L'empoisonnement fonctionne.
+</div>`,
       },
       {
-        title: 'Tâche 5 : Analyser en détail avec tshark',
-        content: `<strong>tshark</strong> (Wireshark CLI) sert à <strong>analyser</strong> les captures en profondeur — il dissèque chaque protocole.\n\n1. Vue résumée de la capture :\n<code>tshark -r /tmp/arp-spoof.pcap</code>\n\nChaque ligne = un paquet, avec numéro, timestamp, source, destination, protocole, info.\n\n2. Vue détaillée (équivalent du panneau central de Wireshark) :\n<code>tshark -r /tmp/arp-spoof.pcap -V</code>\n\nVous voyez chaque couche dissectée : Ethernet → IP → TCP → HTTP.\n\n3. <strong>Filtres d'affichage Wireshark</strong> — filtrer uniquement les requêtes HTTP :\n<code>tshark -r /tmp/arp-spoof.pcap -Y "http.request"</code>\n\n4. Extraire uniquement les URLs demandées :\n<code>tshark -r /tmp/arp-spoof.pcap -Y "http.request" -T fields -e http.host -e http.request.uri</code>\n\n5. <strong>Reconstituer le flux TCP</strong> (comme "Suivre le flux TCP" dans Wireshark) :\n<code>tshark -r /tmp/arp-spoof.pcap -z "follow,tcp,ascii,0" -q</code>\n\nCela affiche la requête HTTP et la réponse complète du serveur, exactement comme un MITM les voit.\n\n6. Statistiques par protocole :\n<code>tshark -r /tmp/arp-spoof.pcap -z "io,phs" -q</code>`,
+        title: 'Étape 5 : Capturer — Intercepter le trafic avec tcpdump',
+        content: `Rappel : <code>tcpdump</code> = jumelles. On capture le trafic brut.
+
+<div style="background:rgba(255, 152, 0, 0.1); border-left:4px solid #ff9800; padding:10px 14px; margin:8px 0; border-radius:4px; font-size:12px;">
+<strong>Important :</strong> l'empoisonnement ARP de l'étape précédente doit toujours être actif. Si vous avez redémarré le lab, relancez les deux commandes <code>arpspoof</code> de l'étape 4.
+</div>
+
+1. Sur <strong>attacker</strong>, lancez la capture sur le port 80 :\n<code>sudo tcpdump -i eth0 -n -w /tmp/capture.pcap port 80 &</code>\n\nOptions : <code>-w</code> écrit en fichier PCAP, <code>port 80</code> = filtre BPF (ne capturer que HTTP).
+
+2. Sur <strong>user</strong>, générez du trafic :\n<code>wget -q http://192.168.1.10</code>\n<code>wget -q http://192.168.1.10/index.html</code>
+
+3. Sur <strong>attacker</strong>, stoppez la capture :\n<code>pkill tcpdump</code>
+
+4. Lecture rapide du contenu capturé :\n<code>tcpdump -r /tmp/capture.pcap -A | head -40</code>
+
+<div style="background:rgba(76, 175, 80, 0.1); border-left:4px solid #4caf50; padding:12px 16px; margin:12px 0; border-radius:4px;">
+<strong>Observation attendue :</strong> Vous voyez les en-têtes HTTP (<code>GET / HTTP/1.1</code>, <code>Host: 192.168.1.10</code>) et le contenu HTML en clair. Contrairement à l'étape 2, l'attaquant intercepte tout le trafic car le cache ARP est empoisonné.
+</div>`,
       },
       {
-        title: 'Tâche 6 : Analyse comparative et nettoyage',
-        content: `<strong>Comparaison tcpdump vs tshark :</strong>\n\n<code>tcpdump -r /tmp/arp-spoof.pcap -A | head -30</code>\n→ Affichage brut : en-têtes + dump ASCII. Rapide, utile pour du debug.\n\n<code>tshark -r /tmp/arp-spoof.pcap -V | head -60</code>\n→ Dissection protocolaire complète : chaque champ HTTP, TCP, IP est nommé et décodé.\n\n<strong>Quand utiliser quoi ?</strong>\n- <code>tcpdump</code> : capturer du trafic en direct, vérifier rapidement "est-ce que des paquets passent ?"\n- <code>tshark</code> : analyser un fichier .pcap, filtrer par protocole, reconstituer des sessions\n\n<strong>Pour terminer, arrêtez le spoofing :</strong>\n<code>pkill arpspoof</code>\n\nVérifiez que le cache ARP revient à la normale sur le <strong>user</strong> :\n<code>arp -a</code>\n\n(Il peut falloir quelques secondes pour que le cache se mette à jour.)`,
+        title: 'Étape 6 : Analyser — Disséquer avec tshark',
+        content: `Rappel : <code>tshark</code> = microscope. On dissèque en profondeur.
+
+1. <strong>Vue résumée</strong> — chaque ligne = 1 paquet (numéro, timestamp, src → dst, protocole) :\n<code>tshark -r /tmp/capture.pcap</code>\nVous verrez les paquets TCP (SYN, ACK) et les requêtes HTTP entre <code>10.10.3.10</code> et <code>192.168.1.10</code>.
+
+2. <strong>Filtrer les requêtes HTTP</strong> — le filtre <code>-Y</code> fonctionne comme dans Wireshark GUI :\n<code>tshark -r /tmp/capture.pcap -Y "http.request"</code>\nSeules les lignes <code>GET / HTTP/1.1</code> et <code>GET /index.html</code> apparaissent.
+
+3. <strong>Extraire les URLs</strong> — <code>-T fields</code> affiche uniquement les champs demandés :\n<code>tshark -r /tmp/capture.pcap -Y "http.request" -T fields -e http.host -e http.request.uri</code>\nRésultat attendu : <code>192.168.1.10  /</code> et <code>192.168.1.10  /index.html</code>.
+
+4. <strong>Reconstituer le flux TCP</strong> — équivalent de "Suivre le flux TCP" dans Wireshark GUI :\n<code>tshark -r /tmp/capture.pcap -z "follow,tcp,ascii,0" -q</code>\nVous voyez la requête HTTP complète du user et la réponse du serveur avec le HTML en clair — exactement ce que l'attaquant MITM intercepte.
+
+5. <strong>Statistiques protocolaires</strong> — vue globale de la capture :\n<code>tshark -r /tmp/capture.pcap -z "io,phs" -q</code>\nMontre la hiérarchie : Ethernet → IP → TCP → HTTP.`,
+      },
+      {
+        title: 'Étape 7 : Synthèse — Comparer, nettoyer, se défendre',
+        content: `<table><tr><th></th><th>tcpdump</th><th>tshark</th></tr><tr><td><strong>Rôle</strong></td><td>Capturer</td><td>Analyser</td></tr><tr><td><strong>Analogie</strong></td><td>Jumelles</td><td>Microscope</td></tr><tr><td><strong>Force</strong></td><td>Léger, rapide</td><td>Filtres, dissection</td></tr><tr><td><strong>Limite</strong></td><td>Pas de dissection</td><td>Plus lourd</td></tr><tr><td><strong>Quand</strong></td><td>"Des paquets passent ?"</td><td>"Que contiennent-ils ?"</td></tr></table><strong>Nettoyage :</strong><ul><li>Sur <strong>attacker</strong> : <code>pkill arpspoof</code></li><li>Sur <strong>user</strong>, forcer le renouvellement du cache ARP :<br><code>sudo ip neigh flush all</code><br><code>ping -c 1 10.10.3.254</code><br><code>arp -a</code><br>La MAC de .254 doit redevenir <code>aa:ab:ac:ad:00:03</code></li></ul><div style="background:rgba(156, 39, 176, 0.1); border-left:4px solid #9c27b0; padding:12px 16px; margin:8px 0; border-radius:4px;"><em>Questions de réflexion :</em><br/>— Comment un administrateur réseau pourrait-il détecter cette attaque ?<br/>— Quel mécanisme pourrait empêcher l'empoisonnement ARP ? (pistes : ARP statique, 802.1X, DHCP snooping + Dynamic ARP Inspection)<br/>— Pourquoi cette attaque ne fonctionne-t-elle que sur le réseau local ?</div>`,
       },
     ],
   },
@@ -556,9 +654,11 @@ export default function LabWorkspace({ token }) {
         {instructions.overview && (
           <div style={{ marginBottom: '20px', padding: '16px', background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)', borderLeft: '3px solid var(--accent)' }}>
             <h3 style={{ fontSize: '14px', color: 'var(--accent)', marginBottom: '8px' }}>Vue d'ensemble</h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              {instructions.overview}
-            </p>
+            <div
+              className="lab-html-content"
+              style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6 }}
+              dangerouslySetInnerHTML={{ __html: nlToBr(instructions.overview) }}
+            />
           </div>
         )}
 
@@ -567,8 +667,9 @@ export default function LabWorkspace({ token }) {
           <div style={{ marginBottom: '20px', padding: '16px', background: 'rgba(0, 212, 255, 0.05)', borderRadius: 'var(--radius-sm)', border: '1px solid rgba(0, 212, 255, 0.15)' }}>
             <h3 style={{ fontSize: '14px', color: 'var(--success)', marginBottom: '8px' }}>Environnement</h3>
             <div
+              className="lab-html-content"
               style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.7, fontFamily: 'var(--font)' }}
-              dangerouslySetInnerHTML={{ __html: instructions.environment.replace(/\n/g, '<br/>') }}
+              dangerouslySetInnerHTML={{ __html: nlToBr(instructions.environment) }}
             />
           </div>
         )}
@@ -578,8 +679,9 @@ export default function LabWorkspace({ token }) {
           <div key={i} className="step">
             <h3>{step.title}</h3>
             <div
+              className="lab-html-content"
               style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.7 }}
-              dangerouslySetInnerHTML={{ __html: step.content.replace(/\n/g, '<br/>') }}
+              dangerouslySetInnerHTML={{ __html: nlToBr(step.content) }}
             />
           </div>
         ))}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Network } from 'vis-network';
 import { DataSet } from 'vis-data';
 
@@ -23,14 +23,15 @@ const ICONS = {
   </svg>`,
 
   router: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <circle cx="32" cy="32" r="28" fill="#1a1a2e" stroke="#f39c12" stroke-width="2"/>
-    <line x1="12" y1="32" x2="52" y2="32" stroke="#f39c12" stroke-width="2.5"/>
-    <line x1="32" y1="12" x2="32" y2="52" stroke="#f39c12" stroke-width="2.5"/>
-    <polygon points="52,32 46,27 46,37" fill="#f39c12"/>
-    <polygon points="12,32 18,27 18,37" fill="#f39c12"/>
-    <polygon points="32,12 27,18 37,18" fill="#f39c12"/>
-    <polygon points="32,52 27,46 37,46" fill="#f39c12"/>
-    <circle cx="32" cy="32" r="6" fill="#f39c12" opacity="0.3"/>
+    <rect x="6" y="18" width="52" height="28" rx="3" fill="#1a1a2e" stroke="#f39c12" stroke-width="2"/>
+    <rect x="6" y="18" width="52" height="10" rx="3" fill="#f39c12" opacity="0.15"/>
+    <circle cx="16" cy="24" r="2.5" fill="#2ecc71"/>
+    <circle cx="24" cy="24" r="2.5" fill="#f39c12"/>
+    <circle cx="32" cy="24" r="2.5" fill="#f39c12" opacity="0.4"/>
+    <rect x="12" y="34" width="8" height="6" rx="1" fill="none" stroke="#f39c12" stroke-width="1.2"/>
+    <rect x="24" y="34" width="8" height="6" rx="1" fill="none" stroke="#f39c12" stroke-width="1.2"/>
+    <rect x="36" y="34" width="8" height="6" rx="1" fill="none" stroke="#f39c12" stroke-width="1.2"/>
+    <rect x="48" y="34" width="8" height="6" rx="1" fill="none" stroke="#f39c12" stroke-width="1.2"/>
   </svg>`,
 
   firewall: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -82,23 +83,63 @@ function svgToDataUrl(svg) {
 // Topologies réseau pour chaque lab
 const TOPOLOGIES = {
   'arp-spoof': {
-    nodes: [
-      { id: 'user', label: 'user\n10.10.3.10\nMAC aa:...:00:02', icon: 'pc', group: 'local', x: -200, y: -80 },
-      { id: 'attacker', label: 'attacker\n10.10.3.20\nMAC aa:...:00:04', icon: 'attacker', group: 'local', x: -200, y: 80 },
-      { id: 'gateway', label: 'router\n10.10.3.254\n10.10.4.254', icon: 'router', group: 'router', x: 0, y: 0 },
-      { id: 'webserver', label: 'webserver\n10.10.4.10\nApache HTTP', icon: 'web', group: 'remote', x: 250, y: 0 },
-    ],
-    edges: [
-      { from: 'user', to: 'gateway', label: 'eth0', color: '#2ecc71', dashes: false },
-      { from: 'attacker', to: 'gateway', label: 'ARP spoof', color: '#e74c3c', dashes: [5, 5] },
-      { from: 'attacker', to: 'user', label: 'ARP spoof', color: '#e74c3c', dashes: [5, 5] },
-      { from: 'gateway', to: 'webserver', label: 'eth1', color: '#e67e22', dashes: false },
-    ],
     groups: {
-      local: { label: 'LOCAL_NETWORK\n10.10.3.0/24', color: '#3498db' },
-      remote: { label: 'REMOTE_NETWORK\n10.10.4.0/24', color: '#e67e22' },
+      local: { label: 'LOCAL_NETWORK 10.10.3.0/24', color: '#3498db' },
+      remote: { label: 'REMOTE_NETWORK 192.168.1.0/24', color: '#e67e22' },
       router: { label: '', color: '#f39c12' },
     },
+    phases: [
+      {
+        id: 'normal',
+        label: '1. Réseau normal',
+        description: 'Le trafic passe directement de user à gateway. L\'attaquant ne voit rien (le switch isole les ports).',
+        nodes: [
+          { id: 'user', label: 'user\n10.10.3.10/24\nMAC aa:...:00:02', icon: 'pc', group: 'local', x: -250, y: 0 },
+          { id: 'attacker', label: 'attacker\n10.10.3.20/24\nMAC aa:...:00:04', icon: 'attacker', group: 'local', x: -250, y: 160, opacity: 0.4 },
+          { id: 'gateway', label: 'gateway\n10.10.3.254/24\n192.168.1.254/24\nMAC aa:...:00:03', icon: 'router', group: 'router', x: 80, y: 0 },
+          { id: 'webserver', label: 'webserver\n192.168.1.10/24\nApache HTTP', icon: 'web', group: 'remote', x: 380, y: 0 },
+        ],
+        edges: [
+          { from: 'user', to: 'gateway', label: 'HTTP GET', color: '#4caf50', width: 3 },
+          { from: 'gateway', to: 'webserver', label: 'forward', color: '#4caf50', width: 2 },
+          { from: 'attacker', to: 'gateway', label: '(ne voit rien)', color: '#666', width: 1, dashes: [5, 5] },
+        ],
+      },
+      {
+        id: 'poisoned',
+        label: '2. Cache ARP empoisonné',
+        description: 'L\'attaquant envoie de fausses réponses ARP. Le cache de user est corrompu : la MAC de la gateway pointe vers l\'attaquant.',
+        nodes: [
+          { id: 'user', label: 'user\n10.10.3.10/24\nCache: .254 → MAC:04 !!', icon: 'pc', group: 'local', x: -250, y: 0 },
+          { id: 'attacker', label: 'attacker\n10.10.3.20/24\nMAC aa:...:00:04\narpspoof actif', icon: 'attacker', group: 'local', x: -250, y: 160 },
+          { id: 'gateway', label: 'gateway\n10.10.3.254/24\nMAC aa:...:00:03', icon: 'router', group: 'router', x: 80, y: 0 },
+          { id: 'webserver', label: 'webserver\n192.168.1.10/24', icon: 'web', group: 'remote', x: 380, y: 0 },
+        ],
+        edges: [
+          { from: 'attacker', to: 'user', label: '"MAC de .254 = moi"', color: '#f44336', width: 3, dashes: [10, 5], arrows: 'to' },
+          { from: 'attacker', to: 'gateway', label: '"MAC de .10 = moi"', color: '#f44336', width: 3, dashes: [10, 5], arrows: 'to' },
+        ],
+      },
+      {
+        id: 'mitm',
+        label: '3. Interception MITM',
+        description: 'Le trafic de user passe par l\'attaquant qui capture tout avec tcpdump/tshark avant de retransmettre.',
+        nodes: [
+          { id: 'user', label: 'user\n10.10.3.10/24', icon: 'pc', group: 'local', x: -300, y: 0 },
+          { id: 'attacker', label: 'attacker\n10.10.3.20/24\ntcpdump / tshark', icon: 'attacker', group: 'local', x: -50, y: 0 },
+          { id: 'gateway', label: 'gateway\n10.10.3.254/24\n192.168.1.254/24', icon: 'router', group: 'router', x: 200, y: 0 },
+          { id: 'webserver', label: 'webserver\n192.168.1.10/24', icon: 'web', group: 'remote', x: 430, y: 0 },
+        ],
+        edges: [
+          { from: 'user', to: 'attacker', label: 'HTTP GET', color: '#f44336', width: 3, arrows: 'to' },
+          { from: 'attacker', to: 'gateway', label: 'forward', color: '#ff9800', width: 2, arrows: 'to' },
+          { from: 'gateway', to: 'webserver', label: '', color: '#4caf50', width: 2, arrows: 'to' },
+          { from: 'webserver', to: 'gateway', label: 'HTTP 200', color: '#4caf50', width: 2, arrows: 'to' },
+          { from: 'gateway', to: 'attacker', label: 'forward', color: '#ff9800', width: 2, arrows: 'to' },
+          { from: 'attacker', to: 'user', label: 'HTTP 200', color: '#f44336', width: 3, arrows: 'to' },
+        ],
+      },
+    ],
   },
 
   'iptables2': {
@@ -242,66 +283,81 @@ const TOPOLOGIES = {
   },
 };
 
+// Construit les DataSets vis-network à partir d'un jeu de nodes/edges
+function buildNodes(nodeList) {
+  return new DataSet(nodeList.map(n => ({
+    id: n.id,
+    label: n.label,
+    shape: 'image',
+    image: svgToDataUrl(ICONS[n.icon] || ICONS.pc),
+    size: 55,
+    x: n.x,
+    y: n.y,
+    fixed: { x: false, y: false },
+    font: {
+      color: '#e8e8f0',
+      size: 14,
+      face: '"JetBrains Mono", monospace',
+      multi: 'md',
+      strokeWidth: 3,
+      strokeColor: '#0f0f1a',
+    },
+    opacity: n.opacity ?? 1,
+    borderWidth: n.borderColor ? 3 : 0,
+    color: {
+      border: n.borderColor || 'transparent',
+    },
+    group: n.group,
+  })));
+}
+
+function buildEdges(edgeList) {
+  return new DataSet(edgeList.map((e, i) => ({
+    id: i,
+    from: e.from,
+    to: e.to,
+    label: e.label || '',
+    color: { color: e.color || '#a0a0b8', highlight: e.color || '#a0a0b8' },
+    width: e.width || 1.5,
+    dashes: e.dashes || false,
+    arrows: e.arrows || '',
+    font: {
+      color: e.color || '#a0a0b8',
+      size: 13,
+      face: '"JetBrains Mono", monospace',
+      strokeWidth: 3,
+      strokeColor: '#0f0f1a',
+      align: 'top',
+    },
+    smooth: { type: 'curvedCW', roundness: edgeList.filter(x => x.from === e.from && x.to === e.to).length > 1 ? 0.2 : 0 },
+  })));
+}
+
 export default function NetworkTopology({ labId, onNodeClick }) {
   const containerRef = useRef(null);
   const networkRef = useRef(null);
+  const [activePhase, setActivePhase] = useState(0);
   const topo = TOPOLOGIES[labId];
+
+  const hasPhases = topo && Array.isArray(topo.phases);
+
+  // Reset phase quand on change de lab
+  useEffect(() => { setActivePhase(0); }, [labId]);
 
   useEffect(() => {
     if (!topo || !containerRef.current) return;
 
-    // Construire les noeuds vis-network avec positions fixes
-    const nodes = new DataSet(topo.nodes.map(n => ({
-      id: n.id,
-      label: n.label,
-      shape: 'image',
-      image: svgToDataUrl(ICONS[n.icon] || ICONS.pc),
-      size: 60,
-      x: n.x,
-      y: n.y,
-      fixed: { x: false, y: false },
-      font: {
-        color: '#e8e8f0',
-        size: 16,
-        face: '"JetBrains Mono", monospace',
-        multi: 'md',
-        strokeWidth: 3,
-        strokeColor: '#0f0f1a',
-      },
-      borderWidth: n.borderColor ? 3 : 0,
-      color: {
-        border: n.borderColor || 'transparent',
-      },
-      group: n.group,
-    })));
+    const currentData = hasPhases
+      ? { nodes: topo.phases[activePhase].nodes, edges: topo.phases[activePhase].edges }
+      : { nodes: topo.nodes, edges: topo.edges };
 
-    // Construire les arêtes
-    const edges = new DataSet(topo.edges.map((e, i) => ({
-      id: i,
-      from: e.from,
-      to: e.to,
-      label: e.label || '',
-      color: { color: e.color || '#a0a0b8', highlight: e.color || '#a0a0b8' },
-      width: e.width || 1.5,
-      dashes: e.dashes || false,
-      arrows: e.arrows || '',
-      font: {
-        color: e.color || '#a0a0b8',
-        size: 13,
-        face: '"JetBrains Mono", monospace',
-        strokeWidth: 3,
-        strokeColor: '#0f0f1a',
-        align: 'top',
-      },
-      smooth: { type: 'curvedCW', roundness: topo.edges.filter(x => x.from === e.from && x.to === e.to).length > 1 ? 0.2 : 0 },
-    })));
+    const nodes = buildNodes(currentData.nodes);
+    const edges = buildEdges(currentData.edges);
 
     const options = {
       autoResize: true,
-      height: '450px',
-      physics: {
-        enabled: false,
-      },
+      height: containerRef.current.clientHeight + 'px',
+      physics: { enabled: false },
       interaction: {
         dragNodes: true,
         dragView: true,
@@ -312,33 +368,25 @@ export default function NetworkTopology({ labId, onNodeClick }) {
       edges: {
         smooth: { enabled: true, type: 'continuous' },
       },
-      layout: {
-        improvedLayout: false,
-      },
+      layout: { improvedLayout: false },
     };
 
-    // Créer le réseau
     const network = new Network(containerRef.current, { nodes, edges }, options);
     networkRef.current = network;
 
-    // Ajuster la vue pour afficher tous les noeuds
-    network.fit({ animation: { duration: 300 } });
+    network.fit({ padding: 20, animation: { duration: 300 } });
 
-    // Clic sur un noeud → basculer vers l'onglet terminal correspondant
     network.on('click', (params) => {
       if (params.nodes.length > 0 && onNodeClick) {
         onNodeClick(params.nodes[0]);
       }
     });
 
-    return () => {
-      network.destroy();
-    };
-  }, [topo, labId, onNodeClick]);
+    return () => { network.destroy(); };
+  }, [topo, labId, onNodeClick, activePhase, hasPhases]);
 
   if (!topo) return null;
 
-  // Légende des sous-réseaux
   const groups = Object.entries(topo.groups).filter(([, g]) => g.label);
 
   return (
@@ -364,11 +412,52 @@ export default function NetworkTopology({ labId, onNodeClick }) {
           </svg>
           Topologie réseau (interactif — glisser/zoomer)
         </summary>
+
+        {hasPhases && (
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' }}>
+            {topo.phases.map((phase, index) => (
+              <button
+                key={phase.id}
+                onClick={() => setActivePhase(index)}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '6px',
+                  border: activePhase === index ? '2px solid var(--accent)' : '1px solid var(--border)',
+                  background: activePhase === index ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-primary)',
+                  fontWeight: activePhase === index ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontFamily: 'var(--font-mono)',
+                  color: activePhase === index ? 'var(--accent)' : 'var(--text-secondary)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {phase.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {hasPhases && topo.phases[activePhase].description && (
+          <div style={{
+            padding: '6px 10px',
+            marginBottom: '8px',
+            background: 'rgba(99, 102, 241, 0.08)',
+            borderLeft: '3px solid var(--accent)',
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: 'var(--text-secondary)',
+            fontFamily: 'var(--font-mono)',
+          }}>
+            {topo.phases[activePhase].description}
+          </div>
+        )}
+
         <div
           ref={containerRef}
           style={{
             width: '100%',
-            height: '450px',
+            height: '350px',
             background: '#0a0a12',
             borderRadius: '8px',
             border: '1px solid var(--border)',

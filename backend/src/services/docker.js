@@ -79,7 +79,7 @@ const LAB_CONFIGS = {
       { name: 'gateway', image: IMAGES.network, user: 'ubuntu', password: 'ubuntu', terminals: 1,
         networks: [
           { name: 'LOCAL_NETWORK', ip: '10.10.3.254', mac: 'aa:ab:ac:ad:00:03' },
-          { name: 'REMOTE_NETWORK', ip: '10.10.4.254' }
+          { name: 'REMOTE_NETWORK', ip: '192.168.1.254' }
         ],
         setup: ['echo 1 > /proc/sys/net/ipv4/ip_forward'] },
       { name: 'attacker', image: IMAGES.attacker, user: 'ubuntu', password: 'ubuntu', terminals: 3,
@@ -89,15 +89,15 @@ const LAB_CONFIGS = {
           'ip route replace default via 10.10.3.254 2>/dev/null || true'
         ] },
       { name: 'webserver', image: IMAGES.network, user: 'ubuntu', password: 'ubuntu', terminals: 1,
-        network: 'REMOTE_NETWORK', ip: '10.10.4.10',
+        network: 'REMOTE_NETWORK', ip: '192.168.1.10',
         setup: [
-          'ip route replace default via 10.10.4.254 2>/dev/null || true',
+          'ip route replace default via 192.168.1.254 2>/dev/null || true',
           'service apache2 start 2>/dev/null || true'
         ] },
     ],
     networks: [
       { name: 'LOCAL_NETWORK', subnet: '10.10.3.0/24', gateway: '10.10.3.1' },
-      { name: 'REMOTE_NETWORK', subnet: '10.10.4.0/24', gateway: '10.10.4.1' },
+      { name: 'REMOTE_NETWORK', subnet: '192.168.1.0/24', gateway: '192.168.1.1' },
     ],
   },
 
