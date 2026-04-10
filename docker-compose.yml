@@ -26,7 +26,7 @@ services:
       DATABASE_URL: postgresql://cyberlab:${DB_PASSWORD:-cyberlab_secret}@db:5432/cyberlab
       JWT_SECRET: ${JWT_SECRET:-cyberlab_jwt_secret_change_me}
       LABTAINERS_PATH: /labtainers
-      LABTAINERS_HOST_PATH: C:/Users/baptiste/Documents/Cours/Labtainers
+      LABTAINERS_HOST_PATH: C:/Users/admin/Desktop/dockerlabs/Labtainers
       # CAPTURES_HOST_PATH retiré — pas de volume partagé (sécurité serveur)
       NODE_ENV: production
     volumes:
