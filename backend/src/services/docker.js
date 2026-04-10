@@ -6,8 +6,27 @@ const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 // Chemin INTERNE au conteneur backend (pour lire les fichiers de config)
 const LABTAINERS_PATH = process.env.LABTAINERS_PATH || '/labtainers';
 // Chemins HÔTE (pour les bind mounts des conteneurs de lab créés via le socket Docker)
-const LABTAINERS_HOST_PATH = process.env.LABTAINERS_HOST_PATH || LABTAINERS_PATH;
+// Détecté automatiquement au démarrage via l'inspection du conteneur backend
+let LABTAINERS_HOST_PATH = process.env.LABTAINERS_HOST_PATH || LABTAINERS_PATH;
 const CAPTURES_HOST_PATH = process.env.CAPTURES_HOST_PATH || '/shared_captures';
+
+// Auto-détection du chemin hôte en inspectant les mounts du conteneur backend
+async function detectHostPath() {
+  try {
+    // Trouver notre propre conteneur via le hostname (= container ID en Docker)
+    const hostname = fs.readFileSync('/etc/hostname', 'utf8').trim();
+    const container = docker.getContainer(hostname);
+    const info = await container.inspect();
+    const mount = info.Mounts.find(m => m.Destination === LABTAINERS_PATH);
+    if (mount) {
+      LABTAINERS_HOST_PATH = mount.Source;
+      console.log(`LABTAINERS_HOST_PATH auto-détecté: ${LABTAINERS_HOST_PATH}`);
+    }
+  } catch (err) {
+    console.warn('Auto-détection du chemin hôte impossible, utilisation de LABTAINERS_HOST_PATH depuis env:', LABTAINERS_HOST_PATH);
+  }
+}
+detectHostPath();
 
 // Cache des labs parsés
 let labCache = null;
